@@ -3,9 +3,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <String.h>
+#include <WiFiClientSecure.h>
+#include "esp_heap_caps.h"
 
-
-//pinos para leitura de áudio
 #define I2S_WS 15
 #define I2S_SD 13
 #define I2S_SCK 2
@@ -13,7 +13,7 @@
 #define I2S_SAMPLE_RATE   (16000)
 #define I2S_SAMPLE_BITS   (16)
 #define I2S_READ_LEN      (16 * 1024)
-#define RECORD_TIME       (20) //Seconds
+#define RECORD_TIME       (10) //Seconds
 #define I2S_CHANNEL_NUM   (1)
 #define FLASH_RECORD_SIZE (I2S_CHANNEL_NUM * I2S_SAMPLE_RATE * I2S_SAMPLE_BITS / 8 * RECORD_TIME)
 
@@ -24,46 +24,33 @@
 // Variável para controlar a gravação
 volatile bool startRecording = false;
 
-//define o arquivo para ser enviado para o servidor e fazer o reconhecimento de voz
 File file;
 const char filename[] = "/recording.wav";
 const int headerSize = 44;
-bool isWIFIConnected=false;
+bool isWIFIConnected;
 
 char i = '0';
 char a[15] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
 int k = 0;
 
 void setup() {
-  Serial.begin(115200);  // Comunicação Serial com o computador
-  // Serial1.begin(115200); // Para o microfone
-  Serial2.begin(9600, SERIAL_8N1, 16, 17);  // Comunicação Serial com RX=2, TX=3
-
-// Inicializa a conexão WiFi
-    WiFi.begin("VITAOFODA", "vitaofoda123");
-    Serial.println("Conectando ao WiFi...");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    isWIFIConnected=true;
-    Serial.println("\nWiFi conectado!");
-    Serial.print("Endereço IP: ");
-    Serial.println(WiFi.localIP());
-
-//Inicializa  a task de leitura de áudio
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  // Inicializa a conexão WiFi
   SPIFFSInit();
   i2sInit();
-  xTaskCreate(i2s_adc, "i2s_adc", 1024 * 2, NULL, 1, NULL);
+  // xTaskCreate(i2s_adc, "i2s_adc", 1024 * 2, NULL, 1, NULL);
   delay(500);
-  // xTaskCreate(wifiConnect, "wifi_Connect", 4096, NULL, 0, NULL);
-  // Configuração do Botão e LED
+  Serial.print("Memória heap livre depois do Setup: ");
+  Serial2.begin(9600, SERIAL_8N1, 16, 17);  // Comunicação Serial com RX=2, TX=3
   pinMode(BUTTON_PIN, INPUT_PULLUP);  // Botão com resistor de pull-up
-  pinMode(LED_PIN, OUTPUT);           // LED como saída
+  pinMode(LED_PIN, OUTPUT);  // LED como saída
+  digitalWrite(LED_PIN, LOW);
+  Serial.println(esp_get_free_heap_size()); // Comunicação Serial com o computador
 }
 
 void loop() {
-    if (Serial2.available()) {
+   if (Serial2.available()) {
         i = Serial2.read();
         a[k] = i;
         k++;
@@ -74,74 +61,87 @@ void loop() {
           for (int j = 0; j < 13; j++) {
                codigoEan+=a[j];
             }
-          HTTPClient http;
-          String serverPath="https://vp4pbajd60.execute-api.sa-east-1.amazonaws.com/Prod/api/v1/produto/"+codigoEan;
-         
-          // String serverPath="http://192.168.68.110:8080";
+        
+
+        
+
+          String serverPath="http://18.230.45.183:5000/api/v1/produto/"+codigoEan;                  
 
           Serial.println("ID: "+codigoEan);
-          http.begin(serverPath.c_str());
-          // Send HTTP GET request
+          conectaWIFI();
+              // Instancia o cliente HTTP e WiFiClientSecure
+           HTTPClient http;
+
+          http.begin(serverPath);
+          http.addHeader("Content-Type", "application/json");
           int httpResponseCode = http.GET();
-          
-          if (httpResponseCode>0) {
-            Serial.print("HTTP Response code: ");
-            Serial.println(httpResponseCode);
-            String payload = http.getString();
-            Serial.println(payload);
-          }
-          else {
-            Serial.print("Error code: ");
-            Serial.println(httpResponseCode);
-          }
-          // Free resources
-          http.end();
 
+            if (httpResponseCode > 0) {
+                // Obtém a resposta do servidor
+                String response = http.getString();
+                Serial.println(response);
+            } else {
+                Serial.print("Erro na requisição: ");
+                Serial.println(httpResponseCode);
+            }
 
-      //     client.begin();
-      //     int httpResponseCode = client.sendRequest("GET");
-      //    if (httpResponseCode == HTTP_CODE_OK) {
-      //   String response = client.getString();
-      //   // Processar resposta
-      //   Serial.println(response);
-      //   codigoEan="";
-      //   } else {
-      //       Serial.print("Erro na requisição: ");
-      //       Serial.println(httpResponseCode);
-      //   }
-
-      //  client.end();
-  // Serial.print("ID : ");
-  // for (int j = 0; j < 13; j++) {
-  //     Serial.print(a[j]);
-  // }
-  // Serial.println();
-
-  // if (strncmp(a, "8851959132166", 13) == 0) {
-  //     Serial.println("Name : Fanta Orange");
-  //     Serial.println();
-  // }
-  // if (strncmp(a, "8851959132173", 13) == 0) {
-  //     Serial.println("Name : Fanta Strawberry");
-  //     Serial.println();
-  // }
+            // Encerra a conexão
+            http.end();
+            desconectaWIFI();
+     
   k = 0;
 }
     }
 
-    // Verifica se o botão é pressionado
-    // if (digitalRead(BUTTON_PIN) == HIGH) {
-    //     startRecording = true;
-    //     digitalWrite(LED_PIN, HIGH); // Acende o LED
-
-    //     // Espera um pouco para evitar detecção múltipla
-    //     // delay(500);
-    // }
-
-     
-           
+     if (digitalRead(BUTTON_PIN) == HIGH && !startRecording) {
+        startRecording = true;
+        digitalWrite(LED_PIN, HIGH); // Acende o LED
+        delay(500); // Espera um pouco para evitar detecção múltipla
+        i2s_adc();
+       
+  }
 }
 
+void conectaWIFI(){
+          
+       // Se já estiver conectado, não faz nada
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("WiFi já está conectado.");
+        return;
+    }
+
+    // Configura o modo WiFi para estação (cliente)
+    WiFi.mode(WIFI_STA);
+
+    // Inicia a conexão WiFi
+    WiFi.begin("VITAOFODA", "vitaofoda123");
+    Serial.println("Conectando ao WiFi...");
+
+    // Tenta se conectar ao WiFi por um tempo máximo (por exemplo, 10 segundos)
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+        
+        // Verifica se excedeu o tempo máximo de tentativa de conexão
+        if (millis() - startTime > 10000) {
+            Serial.println("\nFalha ao conectar ao WiFi.");
+            return;
+        }
+    }
+
+    isWIFIConnected = true;
+    Serial.println("\nWiFi conectado!");
+
+}
+
+void desconectaWIFI(){
+        isWIFIConnected=false;
+        WiFi.disconnect();    
+        delay(100); // Aguarda 100ms para processamento
+        WiFi.mode(WIFI_OFF);  
+        Serial.println("Wifi desconectado!!");
+}
 
 void SPIFFSInit(){
   if(!SPIFFS.begin(true)){
@@ -197,6 +197,80 @@ void i2s_adc_data_scale(uint8_t * d_buff, uint8_t* s_buff, uint32_t len)
         d_buff[j++] = 0;
         d_buff[j++] = dac_value * 256 / 2048;
     }
+}
+  
+
+void i2s_adc() {
+    if (!startRecording) {
+        return;
+    }
+
+    int i2s_read_len = I2S_READ_LEN;
+    int flash_wr_size = 0;
+    size_t bytes_read;
+
+    Serial.println("Memória heap disponível antes da alocação do buffer i2s_read_buff: "); 
+    Serial.println(esp_get_free_heap_size()); 
+    char* i2s_read_buff = (char*) calloc(i2s_read_len, sizeof(char));
+    Serial.println("Memória heap disponível antes da alocação do buffer flash_write_buff: "); 
+    Serial.println(esp_get_free_heap_size()); 
+    uint8_t* flash_write_buff = (uint8_t*) calloc(i2s_read_len, sizeof(char));
+
+    if (i2s_read_buff == NULL || flash_write_buff == NULL) {
+        Serial.println("Falha ao alocar memória");
+        free(i2s_read_buff);
+        free(flash_write_buff);
+        return;
+    }
+
+    digitalWrite(LED_PIN, HIGH);
+    Serial.println(" *** Recording Start *** ");
+
+    while (flash_wr_size < FLASH_RECORD_SIZE) {
+        i2s_read(I2S_PORT, (void*) i2s_read_buff, i2s_read_len, &bytes_read, portMAX_DELAY);
+        i2s_adc_data_scale(flash_write_buff, (uint8_t*)i2s_read_buff, i2s_read_len);
+        file.write((const byte*) flash_write_buff, i2s_read_len);
+        flash_wr_size += i2s_read_len;
+
+        // Progresso da gravação
+        ets_printf("Sound recording %u%%\n", flash_wr_size * 100 / FLASH_RECORD_SIZE);
+    }
+
+    file.close();
+    digitalWrite(LED_PIN, LOW);
+    Serial.println(" *** Recording End *** ");
+
+   free(i2s_read_buff);
+   free(flash_write_buff);
+   Serial.println("Memória heap disponível antes de ligar o Wi Fi: "); 
+    Serial.println(esp_get_free_heap_size()); 
+    conectaWIFI();
+     Serial.println("Memória heap disponível depois de ligar o Wi Fi: "); 
+    Serial.println(esp_get_free_heap_size()); 
+    // Upload do arquivo, se conectado ao WiFi
+    // if (isWIFIConnected) {
+    //     uploadFile();
+    // }
+    desconectaWIFI();
+    Serial.println("Memória heap disponível depois de desligar o Wi Fi: "); 
+    Serial.println(esp_get_free_heap_size()); 
+    
+
+ 
+
+    startRecording = false;
+}
+
+
+void formatSPIFFS() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println("Erro ao montar SPIFFS");
+    return;
+  }
+
+  Serial.println("Formatando SPIFFS...");
+  SPIFFS.format();
+  Serial.println("SPIFFS formatado.");
 }
 
 void example_disp_buf(uint8_t* buf, int length)
@@ -261,60 +335,6 @@ void wavHeader(byte* header, int wavSize){
 }
 
 
-
-void i2s_adc(void *arg) {
-    int i2s_read_len = I2S_READ_LEN;
-    size_t bytes_read;
-    char* i2s_read_buff = (char*) calloc(i2s_read_len, sizeof(char));
-    uint8_t* flash_write_buff = (uint8_t*) calloc(i2s_read_len, sizeof(char));
-    int flash_wr_size = 0;
-    unsigned long startTime = 0;
-
-    while (true) {
-        if (startRecording) {
-            digitalWrite(LED_PIN, HIGH); // Acende o LED
-            Serial.println(" *** Recording Start *** ");
-            startTime = millis(); // Armazena o momento em que a gravação começou
-
-            flash_wr_size = 0;
-            while (millis() - startTime < 10000) { // Grava por 10 segundos
-                // Lê dados do I2S
-                i2s_read(I2S_PORT, (void*) i2s_read_buff, i2s_read_len, &bytes_read, portMAX_DELAY);
-
-                // Escala e escreve os dados no arquivo
-                i2s_adc_data_scale(flash_write_buff, (uint8_t*)i2s_read_buff, i2s_read_len);
-                file.write((const byte*) flash_write_buff, i2s_read_len);
-
-                flash_wr_size += i2s_read_len;
-                ets_printf("Sound recording %u%%\n", flash_wr_size * 100 / FLASH_RECORD_SIZE);
-            }
-
-            file.close();
-            digitalWrite(LED_PIN, LOW); // Apaga o LED
-            Serial.println(" *** Recording End *** ");
-
-            // Lista os arquivos no SPIFFS e envia para o servidor se WiFi conectado
-            listSPIFFS();
-            if (isWIFIConnected) {
-                uploadFile();
-            }
-
-            startRecording = false;
-
-            // Libera os buffers
-            free(i2s_read_buff);
-            free(flash_write_buff);
-
-            // Recria os buffers para a próxima gravação
-            i2s_read_buff = (char*) calloc(i2s_read_len, sizeof(char));
-            flash_write_buff = (uint8_t*) calloc(i2s_read_len, sizeof(char));
-        }
-
-        // Pausa breve para evitar uso excessivo de CPU
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-    }
-}
-
 void listSPIFFS(void) {
   Serial.println(F("\r\nListing SPIFFS files:"));
   static const char line[] PROGMEM =  "=================================================";
@@ -362,33 +382,7 @@ void listSPIFFS(void) {
   delay(1000);
 }
 
-// void wifiConnect(void *pvParameters) {
-//     isWIFIConnected = false;
-//     char* ssid = "VITAOFODA";
-//     char* password = "vitaofoda123";
 
-//     Serial.println("Conectando ao WiFi...");
-//     WiFi.begin(ssid, password);
-
-//     int maxTentativas = 10;
-//     for (int tentativas = 0; tentativas < maxTentativas; tentativas++) {
-//         if (WiFi.status() == WL_CONNECTED) {
-//             isWIFIConnected = true;
-//             Serial.println("Conectado com sucesso ao WiFi!");
-//             break;
-//         }
-//         Serial.print(".");
-//         vTaskDelay(1000 / portTICK_PERIOD_MS);
-//     }
-
-//     if (!isWIFIConnected) {
-//         Serial.println("\nFalha ao conectar ao WiFi. Verifique as credenciais ou o sinal.");
-//         Serial.print("Código de erro do WiFi: ");
-//         Serial.println(WiFi.status());
-//     }
-
-//     vTaskDelete(NULL); // Termina a task se a conexão falhar ou for bem-sucedida
-// }
 
 void uploadFile(){
   file = SPIFFS.open(filename, FILE_READ);
@@ -417,5 +411,3 @@ void uploadFile(){
   file.close();
   client.end();
 }
-
-
