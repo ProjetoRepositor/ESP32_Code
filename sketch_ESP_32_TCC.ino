@@ -13,7 +13,7 @@
 #define I2S_SAMPLE_RATE   (16000)
 #define I2S_SAMPLE_BITS   (16)
 #define I2S_READ_LEN      (16 * 1024)
-#define RECORD_TIME       (10) //Seconds
+#define RECORD_TIME       (7) //Seconds
 #define I2S_CHANNEL_NUM   (1)
 #define FLASH_RECORD_SIZE (I2S_CHANNEL_NUM * I2S_SAMPLE_RATE * I2S_SAMPLE_BITS / 8 * RECORD_TIME)
 
@@ -60,12 +60,10 @@ void loop() {
 
           for (int j = 0; j < 13; j++) {
                codigoEan+=a[j];
-            }
+            }      
         
 
-        
-
-          String serverPath="http://18.230.45.183:5000/api/v1/produto/"+codigoEan;                  
+          String serverPath="http://tcc-proxy.caioruiz.com/https://rq0ak44zy0.execute-api.sa-east-1.amazonaws.com/Prod/api/v1/carrinho";                  
 
           Serial.println("ID: "+codigoEan);
           conectaWIFI();
@@ -74,10 +72,14 @@ void loop() {
 
           http.begin(serverPath);
           http.addHeader("Content-Type", "application/json");
-          int httpResponseCode = http.GET();
+          http.addHeader("token", "7f4e2164a8e8ef0be122d2cbd1ff61e79d4973cfd29cc9917fb4b8ff3d87bd7b");
+          String jsonEnvio="{\"codigoDeBarras\": \""+ codigoEan +"\", \"quantidade\": 1}";
+
+          int httpResponseCode = http.sendRequest("POST", jsonEnvio);
 
             if (httpResponseCode > 0) {
                 // Obtém a resposta do servidor
+                Serial.print("Cheguei aqui: ");
                 String response = http.getString();
                 Serial.println(response);
             } else {
@@ -247,10 +249,10 @@ void i2s_adc() {
     conectaWIFI();
      Serial.println("Memória heap disponível depois de ligar o Wi Fi: "); 
     Serial.println(esp_get_free_heap_size()); 
-    // Upload do arquivo, se conectado ao WiFi
-    // if (isWIFIConnected) {
-    //     uploadFile();
-    // }
+   // Upload do arquivo, se conectado ao WiFi
+    if (isWIFIConnected) {
+        uploadFile();
+    }
     desconectaWIFI();
     Serial.println("Memória heap disponível depois de desligar o Wi Fi: "); 
     Serial.println(esp_get_free_heap_size()); 
@@ -391,12 +393,14 @@ void uploadFile(){
     return;
   }
 
-  Serial.println("===> Upload FILE to Node.js Server");
+  Serial.println("===> Transcrevendo...");
 
   HTTPClient client;
-  client.begin("http://192.168.1.124:8888/uploadAudio");
-  client.addHeader("Content-Type", "audio/wav");
+  client.begin("http://tcc-proxy.caioruiz.com:800/api/audio");
+  client.addHeader("Content-Type", "audio/wave");
+  http.addHeader("token", "7f4e2164a8e8ef0be122d2cbd1ff61e79d4973cfd29cc9917fb4b8ff3d87bd7b");
   int httpResponseCode = client.sendRequest("POST", &file, file.size());
+  delay(10000);
   Serial.print("httpResponseCode : ");
   Serial.println(httpResponseCode);
 
@@ -410,4 +414,6 @@ void uploadFile(){
   }
   file.close();
   client.end();
+  // formatSPIFFS();
+  ESP.restart();
 }
